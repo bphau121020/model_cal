@@ -3,6 +3,7 @@ from operator import index
 from flask import *
 import pandas as pd
 import config
+import collections
 #from transformers import AutoTokenizer
 import json
 # from model import model_infer
@@ -12,6 +13,7 @@ from statistics import mean, stdev, variance
 firebase = config.connection()
 app = Flask(__name__)
 app.secret_key = "Abcd1234"
+sentiment = ['entertainment','accommodation','restaurant_serving','food','traveling','shopping']
 
 # tokenizer = AutoTokenizer.from_pretrained("vinai/phobert-base", use_fast=False)
 # model = model_infer.SentimentClassifier()
@@ -22,8 +24,9 @@ app.secret_key = "Abcd1234"
 
 def save_df(df, id):
     postdata = df.to_dict()
+    for i in sentiment:
+        postdata[i] = {key: val for key,val in postdata[i].items() if val != 0}
     result = firebase.put("/input", id, postdata)
-    return result
 
 
 def create_new(df):
@@ -90,6 +93,22 @@ def save_cal(page, an_uong_cal, di_chuyen_cal, giai_tri, luu_tru, mua_sam, nha_h
     }
     result = firebase.put("/cal", page, dict_save)
 
+def get_max(dict_max):
+    print(dict_max)
+    l = []
+    d = collections.defaultdict(dict)
+    for i in sentiment:
+        for j in range(1,6):
+            l.append(dict_max[j][i])
+        mx = max(l)
+        idx = l.index(mx)
+        val = firebase.get(("/place_id"),idx+1)
+        d['value']=mx
+        d['place_name']=val
+        l.clear()
+        result = firebase.put("/max",i,d)
+        d.clear()
+
 @app.route("/")
 def hello():
     return render_template("index.html")
@@ -112,6 +131,7 @@ def upload():
 @app.route("/cal", methods=["GET"])
 def cal():
     print("loading")
+    dic_max =  collections.defaultdict(dict)
     status = []
     an_uong = []
     di_chuyen = []
@@ -119,9 +139,7 @@ def cal():
     luu_tru = []
     mua_sam = []
     nha_hang = []
-    # test = firebase.get('/input/1/Review',2)
-    # print(test)
-    for i in range(1, 6):
+    for i in range(1, 7):
         boo_val = query(i, "status")
         for x, y in boo_val.items():
             if y == True:
@@ -132,9 +150,18 @@ def cal():
         luu_tru = get_value_by_status(query(i, "accommodation"), status)
         mua_sam = get_value_by_status(query(i, "shopping"), status)
         nha_hang = get_value_by_status(query(i, "restaurant_serving"), status)
+        dic_max[i]['food']=mean(an_uong)
+        dic_max[i]['traveling']=mean(di_chuyen)
+        dic_max[i]['entertainment']=mean(giai_tri)
+        dic_max[i]['accommodation']=mean(luu_tru)
+        dic_max[i]['shopping']=mean(mua_sam)
+        dic_max[i]['restaurant_serving']=mean(nha_hang)
         save_cal(i, an_uong, di_chuyen, giai_tri, luu_tru, mua_sam, nha_hang)
+    # print(dic_max)
+    get_max(dic_max)
     return "Complete the calculation and send the data to the server!!!"
 
 
 if __name__ == "__main__":
     app.run(debug=True)
+
